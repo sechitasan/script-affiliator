@@ -7,13 +7,11 @@ import { AppHeader } from "@/components/app-header"
 import { cn } from "@/lib/utils"
 
 import { DashboardOverview } from "@/components/pages/dashboard-overview"
-import { AffiliatesPage } from "@/components/pages/affiliates-page"
-import { CommissionsPage } from "@/components/pages/commissions-page"
+import { ProductsPage } from "@/components/pages/products-page"
+import { ScriptGeneratorPage } from "@/components/pages/script-generator-page"
 import { AnalyticsPage } from "@/components/pages/analytics-page"
-import { LinksPage } from "@/components/pages/links-page"
 import { PayoutsPage } from "@/components/pages/payouts-page"
-import { ReportsPage } from "@/components/pages/reports-page"
-import { SettingsPage } from "@/components/pages/settings-page"
+import useAuth from "@/lib/auth"
 
 export type PageType =
   | "dashboard"
@@ -29,15 +27,17 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [currentPage, setCurrentPage] = useState<PageType>("dashboard")
+  const {session} = useAuth()
+  const userId = session?.user?.id
 
   const renderMainContent = () => {
     switch (currentPage) {
       case "dashboard":
         return <DashboardOverview />
       case "products":
-        return <AffiliatesPage />
+        return <ProductsPage userId={userId!}/>
       case "scriptgenerator":
-        return <CommissionsPage />
+        return <ScriptGeneratorPage  userId={userId!}/>
       case "scriptgallery":
         return <AnalyticsPage />
       case "payouts":
