@@ -27,9 +27,10 @@ export type PageType =
 interface AppHeaderProps {
   className?: string
   currentPage?: PageType
+  onTabChange?: (tab: string) => void // callback untuk parent
 }
 
-export function AppHeader({ className, currentPage = "dashboard" }: AppHeaderProps) {
+export function AppHeader({ className, currentPage = "dashboard", onTabChange }: AppHeaderProps) {
   const [isDark, setIsDark] = useState(false)
   const [logoutLoading, setLogoutLoading] = useState(false)
 
@@ -164,7 +165,9 @@ export function AppHeader({ className, currentPage = "dashboard" }: AppHeaderPro
           <DropdownMenuContent align="end" className="w-56" forceMount>
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => onTabChange?.("profile")}
+            >
               <User className="mr-2 h-4 w-4" />
               Profile
             </DropdownMenuItem>
