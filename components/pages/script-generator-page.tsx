@@ -22,6 +22,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select"
+import { set } from "date-fns"
 
 type ProductsPageProps = {
   userId: string
@@ -32,29 +33,24 @@ type Product = {
   name: string
 }
 
-const HOOK_OPTIONS = [
-  "Are you struggling with [problem]?",
-  "Imagine if you could [benefit]...",
-  "What if I told you [solution]?",
-  "Stop wasting time on [pain point].",
-  "Here’s the secret to [result]...",
-]
-
 export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
   const [products, setProducts] = useState<Product[]>([])
   const [productId, setProductId] = useState<string>("")
+  const [productName, setProductName] = useState<string>("");
   const [keyPoints, setKeyPoints] = useState<string>("")
+  const [language, setLanguage] = useState<string>("Indonesia")
   const [tone, setTone] = useState<string>("Persuasive")
   const [duration, setDuration] = useState<string>("30")
   const [contentType, setContentType] = useState<string>("video_ads")
-  const [openingLines, setOpeningLines] = useState<string[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [generatedScript, setGeneratedScript] = useState<string>("")
+  const [generatedScriptsJson, setGeneratedScriptsJson] = useState<any[]>([])
   const [scriptCount, setScriptCount] = useState<string>("1") // default 1
   const [availableHooks, setAvailableHooks] = useState<string[]>([])
   const [selectedHooks, setSelectedHooks] = useState<string[]>([])
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [newHook, setNewHook] = useState<string>("")
+  const [isSaved, setIsSaved] = useState(false)
 
   // ✅ Ambil produk milik user
   useEffect(() => {
@@ -122,19 +118,30 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
       return
     }
 
+    if (!selectedHooks || selectedHooks.length === 0) {
+      toast.error("Please select at least one opening line")
+      return
+    }
+
     setLoading(true)
     try {
+      const keyPointsArray = Array.isArray(keyPoints) ? keyPoints : [keyPoints]
+      const durationNumber = Number(duration)
+      const scriptCountNumber = Number(scriptCount)
+
       const res = await fetch("/api/generate-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productId,
-          keyPoints,
+          productName,
+          keyPoints: keyPointsArray,
           tone,
-          duration,
+          duration: durationNumber,
           contentType,
-          openingLines,
-          scriptCount, 
+          openingLines: selectedHooks,
+          scriptCount: scriptCountNumber,
+          language,
           userId,
         }),
       })
@@ -142,8 +149,44 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
       if (!res.ok) throw new Error("Failed to generate script")
 
       const data = await res.json()
-      setGeneratedScript(data.script)
-      toast.success("Script generated!")
+
+      let parsedOutput: any = []
+
+      // --- Handle kalau output masih string dengan block ```json ... ```
+      if (typeof data.output === "string") {
+        try {
+          const cleaned = data.output
+            .replace(/```json/g, "")
+            .replace(/```/g, "")
+            .trim()
+
+          parsedOutput = JSON.parse(cleaned)
+        } catch (err) {
+          console.error("Error parsing string output:", err)
+          toast.error("Failed to parse script output")
+          return
+        }
+      } else {
+        parsedOutput = data.output
+      }
+
+      if (Array.isArray(parsedOutput)) {
+        // versi gabungan untuk textarea
+        const textOutput = parsedOutput
+          .map((item: any, i: number) => `Script ${i + 1}\n\n${item.script}`)
+          .join("\n\n---\n\n")
+
+        setGeneratedScript(textOutput)
+
+        // versi JSON untuk simpan ke DB (kalau mau)
+        setGeneratedScriptsJson(parsedOutput)
+
+        toast.success("Script generated!")
+      } else {
+        console.error("Unexpected output format:", parsedOutput)
+        toast.error("Invalid script format")
+      }
+      setIsSaved(false)
     } catch (err) {
       console.error(err)
       toast.error("Error generating script")
@@ -158,9 +201,39 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
     toast.success("Copied to clipboard")
   }
 
+  const handleSave = async () => {
+    if (!generatedScriptsJson || generatedScriptsJson.length === 0) {
+      toast.error("No script to save")
+      return
+    }
+
+    const scripts = generatedScriptsJson.map((s: any) => s.script)
+    try {
+      const res = await fetch("/api/save-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId,
+          userId,
+          scripts, // array of string
+        }),
+      })
+
+      if (!res.ok) throw new Error("Failed to save script")
+
+      toast.success(`${scripts.length} script saved!`)
+      setIsSaved(true)
+    } catch (err) {
+      console.error(err)
+      toast.error("Error saving script")
+    }
+  }
+
   const handleSelect = (hook: string) => {
-    setSelectedHooks([...selectedHooks, hook]);
-    setAvailableHooks(availableHooks.filter((h) => h !== hook));
+    const newSelected = [...selectedHooks, hook]
+    setSelectedHooks(newSelected)
+    setAvailableHooks(availableHooks.filter((h) => h !== hook))
+    setDropdownOpen(false)
   }
 
   const handleRemove = (hook: string) => {
@@ -168,6 +241,11 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
     setAvailableHooks([...availableHooks, hook]);
   }
 
+  const handleSelectProduct = (id: string) => {
+    setProductId(id);
+    const product = products.find((p) => p.id === id);
+    setProductName(product?.name || "");
+  }
 
   return (
     <>
@@ -200,7 +278,7 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Product</Label>
-            <Select value={productId} onValueChange={setProductId}>
+            <Select value={productId} onValueChange={handleSelectProduct}>
               <SelectTrigger className="bg-white border border-gray-300 focus:ring-2 focus:ring-green-700 focus:border-green-700">
                 <SelectValue placeholder="Select a product" />
               </SelectTrigger>
@@ -320,8 +398,8 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
           )}
         </div>
 
-        {/* Tone, Duration & Jumlah Script */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Tone */}
           <div className="space-y-2">
             <Label>Tone</Label>
             <Select value={tone} onValueChange={setTone}>
@@ -337,6 +415,7 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
             </Select>
           </div>
 
+          {/* Duration */}
           <div className="space-y-2">
             <Label>Duration</Label>
             <Select value={duration} onValueChange={setDuration}>
@@ -352,6 +431,7 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
             </Select>
           </div>
 
+          {/* Script Count */}
           <div className="space-y-2">
             <Label>Script Count</Label>
             <Select value={scriptCount} onValueChange={setScriptCount}>
@@ -365,21 +445,35 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
               </SelectContent>
             </Select>
           </div>
-        </div>
 
-        {/* Content Type */}
-        <div className="space-y-2">
-          <Label>Content Type</Label>
-          <Select value={contentType} onValueChange={setContentType}>
-            <SelectTrigger className="bg-white border border-gray-300 focus:ring-2 focus:ring-green-700 focus:border-green-700">
-              <SelectValue placeholder="Select content type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="video_ads">Video Ads</SelectItem>
-              <SelectItem value="social_post">Social Media Post</SelectItem>
-              <SelectItem value="sales_call">Sales Call</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Content Type */}
+          <div className="space-y-2">
+            <Label>Content Type</Label>
+            <Select value={contentType} onValueChange={setContentType}>
+              <SelectTrigger className="bg-white border border-gray-300 focus:ring-2 focus:ring-green-700 focus:border-green-700">
+                <SelectValue placeholder="Select content type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="video_ads">Video Ads</SelectItem>
+                <SelectItem value="social_post">Social Media Post</SelectItem>
+                <SelectItem value="sales_call">Sales Call</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Language */}
+          <div className="space-y-2">
+            <Label>Language</Label>
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger className="bg-white border border-gray-300 focus:ring-2 focus:ring-green-700 focus:border-green-700">
+                <SelectValue placeholder="Select language" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Indonesia">Indonesia</SelectItem>
+                <SelectItem value="English">English</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Button Generate */}
@@ -396,15 +490,33 @@ export function ScriptGeneratorPage({ userId }: ProductsPageProps) {
         </Button>
 
         {/* Generated Script */}
-        {generatedScript && (
+       {generatedScript && (
           <div className="mt-3 space-y-2">
-            <Label>Generated Script</Label>
-            <Textarea value={generatedScript} readOnly className="min-h-[200px]" />
-            <Button variant="outline" size="sm" onClick={handleCopy}>
-              <Copy className="mr-2 h-4 w-4" /> Copy
-            </Button>
-          </div>
-        )}
+              <Label>Generated Script</Label>
+              <Textarea
+                value={generatedScript}
+                onChange={(e) => {
+                  const text = e.target.value
+                  setGeneratedScript(text)
+
+                  // sinkronkan ke JSON
+                  const parts = text.split(/\n\n---\n\n/) // pemisah antar script
+                  const json = parts.map((p) => ({ script: p.trim() }))
+                  setGeneratedScriptsJson(json)
+                }}
+                className="min-h-[200px]"
+              />
+
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleCopy}>
+                  <Copy className="mr-2 h-4 w-4" /> Copy
+                </Button>
+                <Button variant="default" size="sm" onClick={handleSave} disabled={isSaved}  >
+                  Simpan
+                </Button>
+              </div>
+            </div>
+          )}
       </CardContent>
       </Card>
     </>
